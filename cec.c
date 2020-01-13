@@ -9,9 +9,21 @@
 #include "interface/vmcs_host/vc_cec.h"
 #include "cec.h"
 
-static KeyCallback cb;
+static KeyCallback cb = NULL;
+static int initialized = 0;
+static uint16_t physical_address = 0xFFFF;
 
-void callback(void *callback_data, uint32_t reason, uint32_t param1, uint32_t param2, uint32_t param3, uint32_t param4) {
+FILE* log;
+
+static void tv_callback(void *callback_data, uint32_t reason, uint32_t param1, uint32_t param2) {
+   printf("tv %x %x %x\n", reason, param1, param2);
+   fprintf(log, "tv %x %x %x\n", reason, param1, param2); fflush(log);
+}
+
+static void cec_callback(void *callback_data, uint32_t reason, uint32_t param1, uint32_t param2, uint32_t param3, uint32_t param4) {
+#ifdef CECTEST
+    printf("cec test %x %x\n", reason, param1);
+#else
     switch(reason&0xFFFF) {
 	case VC_CEC_BUTTON_PRESSED:
 	case VC_CEC_REMOTE_PRESSED:
@@ -24,48 +36,77 @@ void callback(void *callback_data, uint32_t reason, uint32_t param1, uint32_t pa
 	default:
 	    break;
     }
-    //printf("# called back for reason %x with data %x %x %x %x\n", reason, param1, param2, param3, param4);
+#endif
+}
+
+static void broadcast_physical_address(uint16_t address) {
+    uint8_t message[4];
+    message[0] = CEC_Opcode_ReportPhysicalAddress;
+    message[1] = address >> 8;
+    message[2] = address;
+    message[3] = 1; // recording device
+    vc_cec_send_message(CEC_BROADCAST_ADDR, message, 4, 1);
 }
 
 
 int init_cec(KeyCallback _cb) {
-    VCHI_INSTANCE_T vchi_instance;
-    VCHI_CONNECTION_T *vchi_connections;
-    
-    // initialise bcm_host
+    log = fopen("/tmp/ceclog.txt", "w");
     bcm_host_init();
     
-    // initialise vcos/vchi
-    vcos_init();
-    if (vchi_initialise(&vchi_instance) != VCHIQ_SUCCESS) {
-        fprintf(stderr, "failed to open vchiq instance\n");
-        return -2;
-    }
-    
-    // create a vchi connection
-    if ( vchi_connect( NULL, 0, vchi_instance ) != 0) {
-        fprintf(stderr, "failed to connect to VCHI\n");
-        return -3;
-    }
-    
-    // connect to cec
-    vc_vchi_cec_init( vchi_instance, &vchi_connections, 1);
-
     vc_cec_set_passive(1);
-    vc_cec_register_callback(callback, NULL);
+    vc_cec_register_callback(cec_callback, NULL);
+    vc_tv_register_callback(tv_callback, NULL);
+    //vc_cec_set_logical_address(13/*FREEUSE*/, 2/*reserved*/, 0x18C086L/*BROADCOM*/);
+    vc_cec_set_logical_address(1/*recorder 1*/, 1/*recording device*/, 0x18C086L/*BROADCOM*/);
+    // TODO: set another address if this one is taken
+
+    fprintf(log, "getting physical address\n"); fflush(log);
+    while (vc_cec_get_physical_address(&physical_address)) {
+         sleep(1);
+    }
+    fprintf(log, "got physical address %x\n",physical_address); fflush(log);
+    broadcast_physical_address(physical_address);
+
+    //vc_cec_set_logical_address(0/*tv 1*/, 0/*tv*/, 0x18C086L/*BROADCOM*/);
     //vc_cec_register_all();
+    
     vc_cec_register_command(CEC_Opcode_UserControlPressed);
     vc_cec_register_command(CEC_Opcode_UserControlReleased);
+
     cb = _cb;
+    initialized = 1;
+    fprintf(log, "initialized\n"); fflush(log);
     return 0;
 }
 
 void end_cec(void) {
+    vc_cec_release_logical_address();
+    vc_cec_set_passive(0);
+    bcm_host_deinit();
+    initialized = 0;
 }
 
-#if 0
+void cec_update(void) {
+    if (initialized) {
+    	bcm_host_init();
+    	vc_cec_set_passive(1);
+    	vc_cec_register_callback(cec_callback, NULL);
+    	vc_cec_set_logical_address(1/*recorder 1*/, 1/*recording device*/, 0x18C086L/*BROADCOM*/);
+    	while (vc_cec_get_physical_address(&physical_address)) {
+            sleep(1);
+        }
+    	broadcast_physical_address(physical_address);
+    	vc_cec_register_command(CEC_Opcode_UserControlPressed);
+    	vc_cec_register_command(CEC_Opcode_UserControlReleased);
+    }
+    else {
+	//init_cec(cb);
+    }
+}
+
+#ifdef CECTEST
 int main() {
-    if (cec_init()<0)
+    if (init_cec(NULL)<0)
 	return 1;
     while(1) sleep(6000);
     return 0;

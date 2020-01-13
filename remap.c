@@ -120,9 +120,12 @@ void handle_key(unsigned original, unsigned pressed) {
 #endif
 
 static void init_remaps(void) {
-    if (init_cec(handle_key) < 0) {
-	fputs("Cannot init cec", stderr);
-	exit(1);
+    memset(pressed_keys, 0, NUM_OUTPUT * sizeof(char));
+    for(unsigned int i = 0 ; i < num_remaps ; i++) {
+	memset(remaps[i]->map, 0, sizeof(remaps[i]->map));
+        add_to_map(remaps[i], remaps[i]->map);
+	if (i+1<num_remaps)
+	    app_names[i] = remaps[i]->app_name;
     }
     if (init_proc_monitor(app_names, num_remaps-1) < 0) {
 	fputs("Cannot init proc monitor", stderr);
@@ -132,19 +135,19 @@ static void init_remaps(void) {
 	fputs("Cannot init inject", stderr);
 	exit(3);
     }
-    memset(pressed_keys, 0, NUM_OUTPUT * sizeof(char));
-    for(unsigned int i = 0 ; i < num_remaps ; i++) {
-	memset(remaps[i]->map, 0, sizeof(remaps[i]->map));
-        add_to_map(remaps[i], remaps[i]->map);
-	if (i+1<num_remaps)
-	    app_names[i] = remaps[i]->app_name;
+    if (init_cec(handle_key) < 0) {
+	fputs("Cannot init cec", stderr);
+	exit(1);
     }
 }
 
 int main() {
     init_remaps();
     while(1) {
-        sleep(86400);
+        sleep(8);
+	puts("up");
+	cec_update();
     }
     return 0;
 }
+
