@@ -145,8 +145,7 @@ int main() {
     init_remaps();
     while(1) {
         sleep(8);
-	puts("up");
-	cec_update();
+	//cec_update();
     }
     return 0;
 }

@@ -13,11 +13,8 @@ static KeyCallback cb = NULL;
 static int initialized = 0;
 static uint16_t physical_address = 0xFFFF;
 
-FILE* log;
-
 static void tv_callback(void *callback_data, uint32_t reason, uint32_t param1, uint32_t param2) {
-   printf("tv %x %x %x\n", reason, param1, param2);
-   fprintf(log, "tv %x %x %x\n", reason, param1, param2); fflush(log);
+    cec_update();
 }
 
 static void cec_callback(void *callback_data, uint32_t reason, uint32_t param1, uint32_t param2, uint32_t param3, uint32_t param4) {
@@ -50,7 +47,6 @@ static void broadcast_physical_address(uint16_t address) {
 
 
 int init_cec(KeyCallback _cb) {
-    log = fopen("/tmp/ceclog.txt", "w");
     bcm_host_init();
     
     vc_cec_set_passive(1);
@@ -60,11 +56,9 @@ int init_cec(KeyCallback _cb) {
     vc_cec_set_logical_address(1/*recorder 1*/, 1/*recording device*/, 0x18C086L/*BROADCOM*/);
     // TODO: set another address if this one is taken
 
-    fprintf(log, "getting physical address\n"); fflush(log);
     while (vc_cec_get_physical_address(&physical_address)) {
          sleep(1);
     }
-    fprintf(log, "got physical address %x\n",physical_address); fflush(log);
     broadcast_physical_address(physical_address);
 
     //vc_cec_set_logical_address(0/*tv 1*/, 0/*tv*/, 0x18C086L/*BROADCOM*/);
@@ -75,11 +69,11 @@ int init_cec(KeyCallback _cb) {
 
     cb = _cb;
     initialized = 1;
-    fprintf(log, "initialized\n"); fflush(log);
     return 0;
 }
 
 void end_cec(void) {
+    vc_tv_unregister_callback(tv_callback);
     vc_cec_release_logical_address();
     vc_cec_set_passive(0);
     bcm_host_deinit();
@@ -87,20 +81,9 @@ void end_cec(void) {
 }
 
 void cec_update(void) {
-    if (initialized) {
-    	bcm_host_init();
-    	vc_cec_set_passive(1);
-    	vc_cec_register_callback(cec_callback, NULL);
-    	vc_cec_set_logical_address(1/*recorder 1*/, 1/*recording device*/, 0x18C086L/*BROADCOM*/);
-    	while (vc_cec_get_physical_address(&physical_address)) {
-            sleep(1);
-        }
-    	broadcast_physical_address(physical_address);
-    	vc_cec_register_command(CEC_Opcode_UserControlPressed);
-    	vc_cec_register_command(CEC_Opcode_UserControlReleased);
-    }
-    else {
-	//init_cec(cb);
+    if(initialized) {
+    	end_cec();
+	init_cec(cb);
     }
 }
 
